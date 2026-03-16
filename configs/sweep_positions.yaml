@@ -1,0 +1,140 @@
+# Position encoding ablation sweep configuration
+# Phase 5: Systematically test different position encoding schemes
+# Sweep over: hierarchical, bit_significance_only, standard_sinusoidal, learned
+
+experiment:
+  name: "sweep_positions"
+  description: "Ablation sweep over position encoding schemes for Karatsuba multiplication"
+  seed: 42
+  wandb_project: "karatsuba-transformers"
+  wandb_tags: ["ablation", "position-encoding", "sweep", "phase5"]
+
+# Shared configuration (same across all sweep variants)
+shared:
+  data:
+    representation: "binary"
+    operand_bits: 8
+    base_case_bits: 4
+    algorithm: "karatsuba"
+    trace_format: "depth_first"
+    n_train_samples: 50000
+    n_test_samples: 5000
+    max_output_bits: 16
+    curriculum:
+      enabled: true
+      stages:
+        - name: "base_case"
+          operand_bits: 4
+          algorithm: "direct"
+          steps: 5000
+        - name: "karatsuba_8bit"
+          operand_bits: 8
+          algorithm: "karatsuba"
+          steps: 95000
+
+  model:
+    d_model: 256
+    n_heads: 8
+    n_shared_layers: 1
+    d_ff: 1024
+    dropout: 0.1
+    max_seq_len: 512
+    vocab_size: 10
+    loop:
+      n_loops_start: 4
+      n_loops_max: 8
+      loop_warmup_steps: 20000
+      adaptive: false
+      timestep_encoding: true
+
+  training:
+    n_steps: 100000
+    batch_size: 128
+    optimizer:
+      type: "adamw"
+      learning_rate: 1.0e-4
+      weight_decay: 0.1
+      beta1: 0.9
+      beta2: 0.98
+      eps: 1.0e-8
+    scheduler:
+      type: "cosine"
+      warmup_steps: 2000
+      min_lr: 1.0e-6
+    gradient_clip: 1.0
+    mixed_precision: true
+    intermediate_supervision:
+      enabled: true
+      weight: 0.3
+    log_every: 200
+    eval_every: 2000
+    checkpoint_every: 5000
+
+  evaluation:
+    test_lengths: [8, 16, 32, 64]
+    n_eval_samples_per_length: 1000
+    metrics:
+      - "exact_match_accuracy"
+      - "per_digit_accuracy"
+      - "per_recursion_level_accuracy"
+
+# Sweep variants — only position_encoding differs
+sweep:
+  parameter: "model.position_encoding"
+  variants:
+
+    # Variant 1: Full hierarchical encoding (all 4 components)
+    # Expected: BEST — encodes full Karatsuba structure
+    - name: "hierarchical"
+      position_encoding:
+        type: "hierarchical"
+        components:
+          - "bit_significance"
+          - "recursion_depth"
+          - "sub_problem_id"
+          - "step_type"
+        max_bit_significance: 64
+        max_recursion_depth: 6
+        embedding_dim_per_component: 64  # 64 * 4 = 256 = d_model
+      checkpoint_dir: "/content/drive/MyDrive/karatsuba_checkpoints/sweep_pos/hierarchical/"
+
+    # Variant 2: Bit significance only (no recursion structure)
+    # Expected: Decent — captures digit alignment but not recursive structure
+    - name: "bit_significance_only"
+      position_encoding:
+        type: "bit_significance_only"
+        components:
+          - "bit_significance"
+        max_bit_significance: 64
+        embedding_dim: 256
+      checkpoint_dir: "/content/drive/MyDrive/karatsuba_checkpoints/sweep_pos/bit_significance/"
+
+    # Variant 3: Standard sinusoidal (Vaswani et al. 2017)
+    # Expected: WORST — no task-specific structure
+    - name: "standard_sinusoidal"
+      position_encoding:
+        type: "sinusoidal"
+        max_seq_len: 2048       # Must be large enough for test-time sequences
+        embedding_dim: 256
+      checkpoint_dir: "/content/drive/MyDrive/karatsuba_checkpoints/sweep_pos/sinusoidal/"
+
+    # Variant 4: Learned position embeddings
+    # Expected: Good at train length, poor generalisation (can't extrapolate to new positions)
+    - name: "learned"
+      position_encoding:
+        type: "learned"
+        max_seq_len: 512        # Fixed — cannot extrapolate beyond training length
+        embedding_dim: 256
+      checkpoint_dir: "/content/drive/MyDrive/karatsuba_checkpoints/sweep_pos/learned/"
+
+# Analysis: compare generalisation curves across all 4 variants
+analysis:
+  plot_type: "accuracy_vs_length"
+  group_by: "position_encoding.type"
+  x_axis: "test_length"
+  y_axis: "exact_match_accuracy"
+  expected_ranking:
+    1: "hierarchical"
+    2: "bit_significance_only"
+    3: "learned"
+    4: "standard_sinusoidal"

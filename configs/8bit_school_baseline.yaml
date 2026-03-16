@@ -1,0 +1,108 @@
+# 8-bit x 8-bit school algorithm baseline configuration
+# Phase 2: Baseline using school (grade-school / long) multiplication traces
+# Same architecture as 8bit_karatsuba but with school algorithm decomposition
+# Purpose: Isolate the effect of algorithm choice on length generalisation
+
+experiment:
+  name: "8bit_school_baseline"
+  description: "Baseline: looped transformer on 8-bit school multiplication traces"
+  seed: 42
+  wandb_project: "karatsuba-transformers"
+  wandb_tags: ["school-algorithm", "baseline", "8bit", "phase2"]
+
+data:
+  representation: "binary"
+  operand_bits: 8
+  algorithm: "school"         # School (long) multiplication algorithm
+  trace_format: "partial_products"  # Partial products + shifted addition
+  exhaustive: false
+  n_train_samples: 50000
+  n_test_samples: 5000
+  train_split: 1.0
+  max_output_bits: 16
+
+  # Curriculum: same structure as Karatsuba config for fair comparison
+  curriculum:
+    enabled: true
+    stages:
+      - name: "base_case"
+        operand_bits: 4
+        algorithm: "direct"
+        steps: 5000
+      - name: "school_8bit"
+        operand_bits: 8
+        algorithm: "school"
+        steps: 95000
+
+model:
+  # SAME architecture as 8bit_karatsuba for fair comparison
+  d_model: 256
+  n_heads: 8
+  n_shared_layers: 1
+  d_ff: 1024
+  dropout: 0.1
+  max_seq_len: 512
+  vocab_size: 8               # 0, 1, [PAD], [SEP], [BOS], [EOS], [SHIFT], [PARTIAL]
+
+  # Looping configuration — same as Karatsuba
+  loop:
+    n_loops_start: 4
+    n_loops_max: 8
+    loop_warmup_steps: 20000
+    adaptive: false
+    timestep_encoding: true
+
+  # Position encoding — standard (bit significance only, no recursion structure)
+  position_encoding:
+    type: "bit_significance_only"
+    components:
+      - "bit_significance"
+      - "step_type"
+    max_bit_significance: 64
+
+training:
+  # SAME training hyperparameters as 8bit_karatsuba for fair comparison
+  n_steps: 100000
+  batch_size: 128
+  optimizer:
+    type: "adamw"
+    learning_rate: 1.0e-4
+    weight_decay: 0.1
+    beta1: 0.9
+    beta2: 0.98
+    eps: 1.0e-8
+  scheduler:
+    type: "cosine"
+    warmup_steps: 2000
+    min_lr: 1.0e-6
+  gradient_clip: 1.0
+  mixed_precision: true
+
+  # No intermediate supervision (school algorithm is flat, not recursive)
+  intermediate_supervision:
+    enabled: false
+
+  log_every: 200
+  eval_every: 2000
+  checkpoint_every: 5000
+  checkpoint_dir: "/content/drive/MyDrive/karatsuba_checkpoints/8bit_school_baseline/"
+
+evaluation:
+  # Same test lengths as Karatsuba for direct comparison
+  test_lengths: [8, 16, 32, 64]
+  n_eval_samples_per_length: 1000
+  metrics:
+    - "exact_match_accuracy"
+    - "per_digit_accuracy"
+  test_loop_counts:
+    8: 8
+    16: 12
+    32: 16
+    64: 20
+
+# Expected: school algorithm should do well at 8-bit but generalise poorly
+targets:
+  8bit_exact_match: 0.95
+  16bit_exact_match: 0.50     # Expect much worse generalisation than Karatsuba
+  32bit_exact_match: 0.10
+  64bit_exact_match: 0.01

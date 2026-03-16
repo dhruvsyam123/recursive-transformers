@@ -1,0 +1,76 @@
+# 4-bit x 4-bit base case training configuration
+# Phase 1: Train the model to perfectly multiply 4-bit numbers (base case for Karatsuba)
+# Exhaustive dataset: all 256 pairs of 4-bit numbers (0-15 x 0-15)
+
+experiment:
+  name: "4bit_base_case"
+  description: "Train looped transformer on exhaustive 4-bit x 4-bit multiplication (base case)"
+  seed: 42
+  wandb_project: "karatsuba-transformers"
+  wandb_tags: ["base-case", "4bit", "phase1"]
+
+data:
+  representation: "binary"
+  operand_bits: 4
+  base_case_bits: 4          # No recursion needed — this IS the base case
+  algorithm: "direct"         # Direct multiplication, no Karatsuba decomposition
+  exhaustive: true            # Use all 256 pairs (16 x 16)
+  train_split: 0.9            # 230 train, 26 test
+  max_output_bits: 8          # 4-bit x 4-bit = max 8-bit result
+
+model:
+  d_model: 64
+  n_heads: 2
+  n_shared_layers: 1          # Single shared layer (looped)
+  d_ff: 256                   # FFN hidden dim (4x d_model)
+  dropout: 0.0                # No dropout for small exhaustive dataset
+  max_seq_len: 32             # Short sequences for 4-bit
+  vocab_size: 6               # 0, 1, [PAD], [SEP], [BOS], [EOS]
+
+  # Looping configuration
+  loop:
+    n_loops: 1                # Fixed 1 loop — no recursion needed for base case
+    adaptive: false
+    timestep_encoding: true   # Still use timestep embedding for consistency
+
+  # Position encoding
+  position_encoding:
+    type: "hierarchical"
+    components:
+      - "bit_significance"    # Which bit position (0=LSB, 3=MSB)
+      - "step_type"           # INPUT, OUTPUT, etc.
+    max_bit_significance: 8
+
+training:
+  n_steps: 5000
+  batch_size: 64
+  optimizer:
+    type: "adamw"
+    learning_rate: 3.0e-4
+    weight_decay: 0.01
+    beta1: 0.9
+    beta2: 0.999
+    eps: 1.0e-8
+  scheduler:
+    type: "cosine"
+    warmup_steps: 500
+    min_lr: 1.0e-6
+  gradient_clip: 1.0
+  mixed_precision: false      # Not needed for tiny model
+
+  # Logging and checkpointing
+  log_every: 100
+  eval_every: 250
+  checkpoint_every: 1000
+  checkpoint_dir: "/content/drive/MyDrive/karatsuba_checkpoints/4bit_base_case/"
+
+evaluation:
+  test_lengths: [4]           # Only test at training length for base case
+  metrics:
+    - "exact_match_accuracy"
+    - "per_digit_accuracy"
+  n_eval_samples: 256         # Evaluate on all pairs
+
+# Success criteria
+targets:
+  exact_match_accuracy: 1.0   # Must achieve 100% — this is the foundation

@@ -1,0 +1,114 @@
+# 8-bit x 8-bit Karatsuba multiplication training configuration
+# Phase 3: Train looped transformer on Karatsuba-decomposed multiplication traces
+# Core experiment — tests whether recursive decomposition enables length generalisation
+
+experiment:
+  name: "8bit_karatsuba"
+  description: "Train looped transformer on 8-bit Karatsuba traces, test length generalisation"
+  seed: 42
+  wandb_project: "karatsuba-transformers"
+  wandb_tags: ["karatsuba", "8bit", "phase3", "main-experiment"]
+
+data:
+  representation: "binary"
+  operand_bits: 8
+  base_case_bits: 4           # Recurse until 4-bit, then multiply directly
+  algorithm: "karatsuba"      # Karatsuba recursive decomposition
+  trace_format: "depth_first" # Depth-first trace ordering (Option A from plan)
+  exhaustive: false           # Too many pairs (65536); sample instead
+  n_train_samples: 50000
+  n_test_samples: 5000
+  train_split: 1.0            # Separate test set generated independently
+  max_output_bits: 16         # 8-bit x 8-bit = max 16-bit result
+
+  # Curriculum: start with base case, then add Karatsuba
+  curriculum:
+    enabled: true
+    stages:
+      - name: "base_case"
+        operand_bits: 4
+        algorithm: "direct"
+        steps: 5000           # Warm up on 4-bit base case
+      - name: "karatsuba_8bit"
+        operand_bits: 8
+        algorithm: "karatsuba"
+        steps: 95000          # Main training on 8-bit Karatsuba
+
+model:
+  d_model: 256
+  n_heads: 8
+  n_shared_layers: 1          # Single shared layer (weight-tied looping)
+  d_ff: 1024                  # FFN hidden dim (4x d_model)
+  dropout: 0.1
+  max_seq_len: 512            # Karatsuba traces for 8-bit are ~100-200 tokens
+  vocab_size: 10              # 0, 1, [PAD], [SEP], [BOS], [EOS], [SPLIT], [ADD], [SUB], [COMBINE]
+
+  # Looping configuration
+  loop:
+    n_loops_start: 4          # Start with 4 loops during early training
+    n_loops_max: 8            # Increase to 8 loops as training progresses
+    loop_warmup_steps: 20000  # Linearly increase loop count over this many steps
+    adaptive: false           # Fixed schedule first; try adaptive later
+    timestep_encoding: true   # Condition each loop iteration on its index
+
+  # Position encoding — hierarchical for Karatsuba structure
+  position_encoding:
+    type: "hierarchical"
+    components:
+      - "bit_significance"    # Which bit position (0=LSB)
+      - "recursion_depth"     # Depth in the Karatsuba recursion tree (0=top)
+      - "sub_problem_id"      # Which sub-problem: z0, z1, z2
+      - "step_type"           # SPLIT, MULTIPLY, ADD, SUB, COMBINE
+    max_bit_significance: 64  # Support up to 64-bit for test-time generalisation
+    max_recursion_depth: 6    # log2(64) = 6 levels for 64-bit numbers
+
+training:
+  n_steps: 100000
+  batch_size: 128
+  optimizer:
+    type: "adamw"
+    learning_rate: 1.0e-4
+    weight_decay: 0.1         # Strong weight decay for generalisation (per Nanda et al.)
+    beta1: 0.9
+    beta2: 0.98
+    eps: 1.0e-8
+  scheduler:
+    type: "cosine"
+    warmup_steps: 2000
+    min_lr: 1.0e-6
+  gradient_clip: 1.0
+  mixed_precision: true       # Use bf16 on TPU / fp16 on T4
+
+  # Intermediate supervision: loss on each recursion level's output
+  intermediate_supervision:
+    enabled: true
+    weight: 0.3               # Auxiliary loss weight (main loss weight = 1.0)
+    levels: "all"             # Supervise all recursion levels
+
+  # Logging and checkpointing
+  log_every: 200
+  eval_every: 2000
+  checkpoint_every: 5000
+  checkpoint_dir: "/content/drive/MyDrive/karatsuba_checkpoints/8bit_karatsuba/"
+
+evaluation:
+  # Test at multiple lengths to measure generalisation
+  test_lengths: [8, 16, 32, 64]
+  n_eval_samples_per_length: 1000
+  metrics:
+    - "exact_match_accuracy"
+    - "per_digit_accuracy"
+    - "per_recursion_level_accuracy"
+  # For longer test lengths, increase loop count proportionally
+  test_loop_counts:
+    8: 8                      # Training length: use trained loop count
+    16: 12                    # 1 extra recursion level
+    32: 16                    # 2 extra recursion levels
+    64: 20                    # 3 extra recursion levels
+
+# Success criteria (from research plan)
+targets:
+  8bit_exact_match: 0.95      # Should be near-perfect at training length
+  16bit_exact_match: 0.90     # Minimum viable result (2x generalisation)
+  32bit_exact_match: 0.70     # Strong result (4x generalisation)
+  64bit_exact_match: 0.50     # Ambitious target (8x generalisation)
