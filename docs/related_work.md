@@ -258,6 +258,87 @@ This paper is relevant in several ways:
 
 ---
 
+## 6. "Why Can't Transformers Learn Multiplication?" (2025)
+
+**ArXiv:** [2510.00184](https://arxiv.org/abs/2510.00184)
+
+### Key Findings (4x4 digit multiplication)
+
+- **Standard fine-tuning (SFT):** <1% accuracy, even scaling to 12-layer 8-head models
+- **Implicit Chain-of-Thought (ICoT):** 100% accuracy
+- SFT fails on middle digits (c_3 to c_6) because it cannot learn required long-range dependencies between input digits
+- ICoT succeeds by forcing the model to internalize intermediate partial sums in latent states
+- An **auxiliary loss predicting "running partial sums"** achieves 99% accuracy without explicit CoT
+
+### Mechanistic Insights
+
+- The successful ICoT model learns a **sparse, binary-tree-like attention graph** that caches partial products at earlier timesteps
+- Digits are embedded using Fourier bases forming a pentagonal prism structure
+- The model decomposes multiplication into parallel subtasks per output digit
+
+### Relevance to Our Project
+
+- Confirms that **intermediate computation (scratchpad/CoT) is essential** for multiplication — raw input→output fails
+- The "auxiliary loss on running partial sums" idea maps to our **intermediate supervision** at each recursion level
+- The binary-tree attention pattern they discover is structurally similar to Karatsuba's recursion tree
+- Suggests our looped architecture (which provides implicit CoT via hidden state evolution) is on the right track
+
+---
+
+## 7. Duan et al. -- "From Interpolation to Extrapolation: Complete Length Generalization for Arithmetic Transformers" (ABC)
+
+**ArXiv:** [2310.11984](https://arxiv.org/abs/2310.11984)
+
+### Method
+
+Three-stage Attention Bias Calibration (ABC):
+1. Train vanilla transformer to interpolation accuracy
+2. Extract and average attention patterns, analyzing weights along diagonals/anti-diagonals
+3. Construct bias matrices and retrain with biases added to attention scores
+
+### Results
+
+| Task | Train | Test | Accuracy |
+|------|-------|------|----------|
+| Successor | 6 digits | 60 digits | 100% |
+| Addition | 6 digits | 60 digits | 99.8% |
+| N x 1 Multiplication | 6 digits | 60 digits | 100% |
+
+**Critical limitation:** Multiplication is N x 1 only (one operand is single digit 0-9). Not general multiplication.
+
+### Relevance
+
+- Demonstrates 10x generalization on N x 1 multiplication
+- The attention bias approach could complement our hierarchical positions
+- Confirms that attention pattern structure is key to generalization
+
+---
+
+## 8. McLeish et al. (NeurIPS 2024) -- "Transformers Can Do Arithmetic with the Right Embeddings" (ABACUS)
+
+**ArXiv:** [2405.17399](https://arxiv.org/abs/2405.17399)
+**Code:** [github.com/mcleish7/arithmetic](https://github.com/mcleish7/arithmetic)
+
+### Method
+
+ABACUS embeddings: learned positional embeddings encoding each digit's position relative to the start of its number (not the entire sequence). Random offset sampling during training (U[1,100]) exposes model to diverse position ranges.
+
+### Key Results
+
+- **Addition (20-digit training):** Looped (8-layer, 2 recurrences) + ABACUS: 99.1% on 100-digit (5x generalization)
+- **Input injection reduces errors by 50%** over ABACUS alone
+- Looped transformer achieves 87% error reduction over standard + ABACUS
+- **Multiplication:** Near-perfect in-distribution accuracy but **no strong OOD generalization reported**
+
+### Critical Architectural Finding
+
+**Input injection** (skip connections from input to each loop iteration) was essential:
+- Without input injection: model "forgets" the input by deep loop iterations
+- With input injection: 50% error reduction on addition generalization
+- This finding is echoed by Fan et al. and is **missing from our current implementation**
+
+---
+
 ## Additional Important Papers (Brief Summaries)
 
 ### Cho et al. (ICLR 2025) -- "Arithmetic Transformers Can Length-Generalize in Both Operand Length and Count"
@@ -307,6 +388,85 @@ Introduces shortcut-consistency training that aligns trajectories of different l
 
 Multi-resolution recursion schedule: early iterations capture global interactions on compressed sequences, later iterations refine at token resolution. **Mirrors our hierarchical recursion levels**: early loops handle top-level splits, later loops handle base cases.
 
+### Thinking Deeper, Not Longer -- Chen (Mar 2026)
+**ArXiv:** [2603.21676](https://arxiv.org/abs/2603.21676)
+
+Depth-recurrent transformer with three stabilization techniques: (1) silent thinking objective (supervise only final output), (2) LayerScale initialization, (3) identity-biased recurrence. Discovers a "computational frontier" where performance transitions from random to near-perfect as reasoning steps scale with task complexity. **All three techniques are directly applicable to our looped transformer.**
+
+### Recursive Models for Long-Horizon Reasoning -- Yang, Srebro, Li (Mar 2026)
+**ArXiv:** [2603.02112](https://arxiv.org/abs/2603.02112)
+
+Models that can recursively invoke themselves to solve subtasks in isolated contexts. Proves any computable problem admits a recursive decomposition requiring exponentially smaller context. 3B parameter model outperforms larger frontier models on Boolean satisfiability. **Conceptually closest to our Karatsuba approach — recursive self-invocation for sub-problems.**
+
+### Adaptive Loops and Memory -- Frey et al. (Mar 2026)
+**ArXiv:** [2603.08391](https://arxiv.org/abs/2603.08391)
+
+Combines adaptive per-layer looping with gated memory banks. Key finding: **looping primarily benefits mathematical reasoning** (not commonsense). Early layers minimize looping; later layers loop more. Validates our architectural choice.
+
+### RLTT: Rewarding Latent Thought Trajectories -- Williams, Tureci (Feb 2026)
+**ArXiv:** [2602.10520](https://arxiv.org/abs/2602.10520)
+
+Distributes rewards throughout entire looped reasoning process rather than only rewarding final output. +14.4% on MATH-500. **Applicable to our intermediate Karatsuba checkpoints (z0, z1, z2 sub-products).**
+
+### Shattered Compositionality -- Zhao et al. (Jan 2026)
+**ArXiv:** [2601.22510](https://arxiv.org/abs/2601.22510)
+
+Discovers that transformers learn multi-digit arithmetic in reverse/parallel order rather than sequentially. "Shattered compositionality" persists in modern LLMs and is NOT mitigated by scaling or scratchpads. **Cautionary finding: our model may not learn Karatsuba compositionally — it may learn a different internal strategy. Must verify with mechanistic interpretability.**
+
+### A Model of Errors in Transformers -- Raju, Netrapalli (Jan 2026)
+**ArXiv:** [2601.14175](https://arxiv.org/abs/2601.14175)
+
+Mathematical model of how transformer errors accumulate step-by-step on deterministic tasks. Two-parameter model (noise rate, plausible-error count) captures observed accuracy across Gemini and DeepSeek. **Directly relevant to our autoregressive cascade concern. Karatsuba's O(n^1.585) steps vs schoolbook's O(n²) should predict lower error accumulation — a theoretical argument in our favor.**
+
+### Role of Sparsity / Predictive Position Coupling -- Golowich et al. (Feb 2025, revised 2026)
+**ArXiv:** [2502.16792](https://arxiv.org/abs/2502.16792)
+
+Length generalization occurs when each predicted token depends on a small (fixed) number of previous tokens. Introduces Predictive Position Coupling — the model learns its own position IDs. **Karatsuba's per-step operations have exactly this sparse dependency property. Theoretical justification for our approach. Predictive Position Coupling could replace our hand-coded hierarchical IDs.**
+
+### Closed-Loop Transformers -- Jafari (Nov 2025)
+**ArXiv:** [2511.21882](https://arxiv.org/abs/2511.21882)
+
+Each hidden state is iteratively refined until reaching self-consistent equilibrium before committing to each token. +8% on hard sequences for binary parity. **Directly addresses autoregressive error cascade: refine each Karatsuba sub-product before committing.**
+
+### Exact Learning of Arithmetic with DFSTs -- Papazov et al. (NeurIPS 2025 Workshop)
+**ArXiv:** [2511.22751](https://arxiv.org/abs/2511.22751)
+
+Differentiable Finite-State Transducers trained on computational traces from expert agents. **3850x length generalization** from 3-digit training on binary addition. **Validates that training on structured algorithmic traces (like Karatsuba) enables extraordinary generalization.**
+
+---
+
+## Niche GitHub Repos with Relevant Techniques
+
+### [anadim/subleq-transformer](https://github.com/anadim/subleq-transformer) (~36 stars)
+Transformer trained on single-step SUBLEQ (one-instruction Turing-complete ISA) state transitions that emergently generalizes to multi-step programs including multiplication (141/141 on 12x12). **Key insight: training on single steps of computation enables multi-step generalization.** Weighted cross-entropy (100x on changed positions) is a useful trick. Curriculum learning across 4 phases.
+
+### [RohanVDeshpande/Recursive-Transformer](https://github.com/RohanVDeshpande/Recursive-Transformer) (3 stars)
+Forced Recurrent Transformers for mathematical reasoning using special tokens to mark sub-problems and recursively decompose expressions. **Closest existing work to our recursive decomposition idea.** Their recursion-boundary marking scheme (analogous to our [SPLIT]/[SUB_MUL]/[COMBINE] tokens) is worth studying.
+
+### [aryol/inductive-scratchpad](https://github.com/aryol/inductive-scratchpad) (~11 stars)
+Implementation of "Globality Barrier and Inductive Scratchpad." Standard scratchpads hit a locality barrier where each output attends to linearly many inputs. Inductive scratchpads (processing in stages, each feeding the next) break this barrier. **Directly validates our Karatsuba loop approach.** Built on NanoGPT.
+
+### [armenjeddi/loopformer](https://github.com/armenjeddi/loopformer) (~9 stars)
+LoopFormer implementation with shortcut-consistency training, time/step-size conditioning. Clean NanoGPT fork with RMSNorm. **Directly usable code for our adaptive loop count.**
+
+### [ironjr/grokfast](https://github.com/ironjr/grokfast) (~578 stars)
+Accelerates grokking 50x by amplifying slow-frequency gradient components via EMA filtering. **Drop-in training accelerator — literally a few lines of code.** Especially relevant since our Karatsuba training shows classic grokking dynamics.
+
+### [anadim/AdderBoard](https://github.com/anadim/AdderBoard) (~340 stars)
+Community challenge for minimal arithmetic transformers. Champion hand-coded solutions reveal exact attention patterns needed for carry propagation. RoPE with period-19 for base-10 digit routing. **Informs minimum architecture size for our base case multiplier.**
+
+### [avramdj/rrt-lora](https://github.com/avramdj/rrt-lora) (~13 stars)
+Relaxed Recursive Transformers: per-loop-iteration LoRA on shared weights with SVD initialization. **Enables "mostly shared but slightly specialized" per-recursion-level weights** — useful since Karatsuba split/combine are structurally same at each level but may need slight adaptation.
+
+### [thomasahle/arithmetic-transformer](https://github.com/thomasahle/arithmetic-transformer) (~17 stars)
+Compares LSTM, Transformer, NoPE, RoPE for arithmetic. **Key finding: NoPE outperforms explicit positional encodings for multiplication.** "Not having embeddings was a bit better than additive positional embeddings."
+
+### [google-deepmind/randomized_positional_encodings](https://github.com/google-deepmind/randomized_positional_encodings) (~82 stars)
+Randomized position encodings sample from larger position ranges during training. 12% average improvement across 15 algorithmic tasks. **Could combine with our hierarchical positions: randomly offset position IDs during training to teach the model to handle unseen ranges.**
+
+### [nouhadziri/faith-and-fate](https://github.com/nouhadziri/faith-and-fate) (~39 stars)
+NeurIPS spotlight. Graph-based analysis of computational dependencies in multiplication scratchpads. **Finding: scratchpads help mostly when they reduce dependency depth, not just step count — directly supports our log(n)-depth Karatsuba argument.** Step-by-step error tracking diagnostic tools.
+
 ---
 
 ## Summary Table: Key Results Comparison
@@ -325,18 +485,47 @@ Multi-resolution recursion schedule: early iterations capture global interaction
 
 ---
 
+## Our Experimental Findings (March-April 2026)
+
+### What worked
+- **Off-by-one mask fix**: Predictable mask must be computed on full token sequence then shifted by 1 to align with targets. Without this, accuracy is stuck at exactly 50%.
+- **Hierarchical concat + heavy weight decay produces grokking**: 14% → 45% → 80% → 90% → 98% accuracy on 8-bit over 250 epochs. Classic grokking trajectory confirming algorithm learning (not memorization).
+- **num_step_types=10 fix**: Karatsuba has 10 step types; default of 7 causes COMBINE/OUTPUT/BASE_MUL to share embeddings.
+- **Tag token unique bit_significance**: Mapping bit_sig=-1 to 200+step_type avoids collision with actual LSB tokens.
+- **Separate batching by bit width**: Avoids padding 27-token 4-bit examples to 373 tokens.
+
+### What didn't work
+- **Sinusoidal positions**: 93-97% on 8-bit but 0% on 16-bit. Model memorizes rather than learning algorithm.
+- **Pure hierarchical positions**: Only 16-18% on 8-bit. Removes sequential position info needed for autoregressive prediction.
+- **Combined (sinusoidal + hierarchical)**: Also ~16% on 8-bit. Hierarchical component adds noise that slows learning.
+- **Hierarchical concat (all fixes, grokking)**: 98% on 8-bit but still 0% on 16-bit. Learned embeddings for recursion_depth and sub_problem_id are untrained for unseen depths/IDs.
+
+### Root cause of generalization failure
+Learned embeddings for `recursion_depth` (eqx.nn.Embedding) return random vectors for depth 2 (never seen during 8-bit training). Same for `sub_problem_id` values beyond 3. The timestep embedding in the looped transformer has the same issue: timesteps 8-11 (needed for 16-bit eval) are untrained.
+
+### Techniques from literature we haven't tried yet
+1. **Input injection** (Fan et al., McLeish et al.) — skip connection from input to each loop iteration. Critical for preventing input forgetting in deep loops.
+2. **NoPE** (Fan et al.) — no positional encoding at all. Eliminates all OOD position issues.
+3. **Sinusoidal for ALL position components** — depth and sub_problem_id as sinusoidal instead of learned, enabling generalization to unseen values.
+4. **Adaptive loop count** with step-dependent supervision (Fan et al.)
+5. **Random position offset during training** (McLeish et al. ABACUS) — exposes model to diverse position ranges.
+
+---
+
 ## Key Takeaways for Our Project
 
-1. **Position encoding matters enormously** (Cho, McLeish). Our hierarchical position encoding is a critical design decision.
+1. **N×N multiplication length generalization is UNSOLVED.** Best results are N×k (k fixed) with 2-3x generalization. Our Karatsuba approach with recursive decomposition is novel.
 
-2. **Looped architectures enable length generalization** (Fan, Saunshi). Using loops to map to recursion levels is well-motivated.
+2. **Input injection is critical** (Fan, McLeish). Our looped transformer is missing this. Adding skip connections from the input embedding to each loop iteration prevents the model from forgetting the input during deep loops. This was essential for Fan et al.'s multiplication results.
 
-3. **The scratchpad format matters** (Hou, Sato). Our depth-first Karatsuba trace needs to be carefully designed for learnability.
+3. **NoPE may be better than complex positions** (Fan). No positional encoding + causal mask eliminates all OOD position issues. Fan et al. achieved binary multiplication generalization this way.
 
-4. **Weight decay is essential** (Nanda). Without it, the model will memorize rather than learn the algorithm.
+4. **Learned embeddings don't generalize to unseen values.** Our recursion_depth and sub_problem_id use learned lookup tables. Index 2 returns random noise if only 0 and 1 were trained. Sinusoidal encoding generalizes because it's a fixed mathematical function.
 
-5. **Local attention helps** (Hou, Hard-ALiBi). The model should not need to attend to the full context at each step.
+5. **Weight decay is essential for grokking** (Nanda). 0.15 weight decay produced classic grokking on our 8-bit experiment, confirming algorithm learning.
 
-6. **No one has tried recursive decomposition for multiplication**. This is our novel contribution. The closest work (Hou et al.) uses flat TM simulation, and all position-coupling work uses the school algorithm.
+6. **The scratchpad format matters** (Hou, Sato, "Why Can't Transformers Learn Multiplication"). Depth-first Karatsuba traces are autoregressive-friendly. Intermediate supervision at each recursion level could help.
 
-7. **The theoretical foundation is strong** (Saunshi, Izzo). Looped transformers can simulate CoT, and recursive decomposition satisfies the conditions for length generalization.
+7. **The theoretical foundation is strong** (Saunshi, Izzo, Fan). Looped transformers can simulate CoT reasoning, and recursive Karatsuba satisfies simulability conditions for length generalization.
+
+8. **No one has tried recursive decomposition for multiplication.** All existing work uses O(n²) schoolbook/TM-simulation approaches. Our O(n^1.585) Karatsuba traces with looped transformers represent a novel angle on this problem.
