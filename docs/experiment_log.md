@@ -178,6 +178,28 @@
 
 ---
 
+## Phase 7: PAUSE/RESUME Recursive Self-Invocation
+
+### EXP-010: PAUSE/RESUME Single-Level Traces (PENDING)
+
+**Date:** 2026-04-02
+**Config:**
+- Model: Same as Phase 5 (all-sinusoidal + input injection) but VOCAB_SIZE=145 (+[PAUSE], [RESUME])
+- Data: 4-bit base cases (256 pairs, 27 tokens) + 8-bit single-level traces (4000 pairs, ~157 tokens)
+- Trace format: Sub-problems replaced with [PAUSE]/[RESUME] instead of inlined
+- Training: teacher-forced, weight_decay=0.15, randomized loops [4,6,8]
+- Inference: autoregressive with recursive self-invocation (model emits [PAUSE], runtime recurses)
+- Each model call bounded at ~157 tokens regardless of total input bit width
+- Hardware: A100 GPU
+
+**Hypothesis:** The model learns when to recurse (emit [PAUSE]) and how to combine results (after [RESUME]). At inference, the runtime manages the call stack. Since each call is bounded-length and structurally identical to training, 16-bit should generalize.
+
+**Key difference from Phase 6:** The model generates tokens AUTOREGRESSIVELY (not teacher-forced). It decides when to PAUSE, outputs sub-problem operands, and computes SUB/COMBINE from RESUME results. The recursion control is partially learned.
+
+**Result:** PENDING
+
+---
+
 ## Key Findings Summary
 
 ### Bugs Found and Fixed
